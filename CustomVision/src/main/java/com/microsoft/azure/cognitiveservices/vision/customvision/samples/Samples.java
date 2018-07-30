@@ -233,7 +233,7 @@ public class Samples {
             while (iteration.status().equals("Training"))
             {
                 System.out.println("Training Status: "+ iteration.status());
-                Thread.sleep(1000);
+                Thread.sleep(5000);
                 iteration = trainer.getIteration(project.id(), iteration.id());
             }
             System.out.println("Training Status: "+ iteration.status());
@@ -257,7 +257,7 @@ public class Samples {
 
             for (Prediction prediction: results.predictions())
             {
-                System.out.println(String.format("\t%s: %.2f%% at: %.2f%, %.2f%, %.2f%, %.2f%",
+                System.out.println(String.format("\t%s: %.2f%% at: %.2f, %.2f, %.2f, %.2f",
                     prediction.tagName(),
                     prediction.probability() * 100.0f,
                     prediction.boundingBox().left(),

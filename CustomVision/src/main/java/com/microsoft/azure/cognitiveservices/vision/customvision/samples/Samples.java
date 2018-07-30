@@ -8,179 +8,263 @@ package com.microsoft.azure.customvision.samples;
 
 import static java.util.Arrays.asList;
 import java.io.*;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
+
 import com.microsoft.azure.cognitiveservices.vision.customvision.training.models.*;
+import com.microsoft.azure.cognitiveservices.vision.customvision.training.models.ImageFileCreateBatch;
+import com.microsoft.azure.cognitiveservices.vision.customvision.training.models.ImageFileCreateEntry;
 import com.microsoft.azure.cognitiveservices.vision.customvision.training.TrainingApi;
+import com.microsoft.azure.cognitiveservices.vision.customvision.training.Trainings;
+import com.microsoft.azure.cognitiveservices.vision.customvision.training.CustomVisionTrainingManager;
 import com.microsoft.azure.cognitiveservices.vision.customvision.training.implementation.TrainingApiImpl;
 import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.models.*;
 import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.models.ImagePrediction;
+import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.models.Prediction;
 import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.PredictionEndpoint;
+import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.Predictions;
+import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.CustomVisionPredictionManager;
 import com.microsoft.azure.cognitiveservices.vision.customvision.prediction.implementation.PredictionEndpointImpl;
 
-public class Samples {
-    public static String trainingApiKey = null;
-    public static String predictionApiKey = null;
 
+public class Samples {
     /**
      * Main entry point.
      * @param args the parameters
      */
-    public static void main(String[] args) {
+    public static void runSample(TrainingApi trainer, PredictionEndpoint predictor) {
         try {
-            if (trainingApiKey == null) {
-                trainingApiKey = System.getenv("AZURE_CUSTOMVISION_TRAINING_API_KEY");
-                if(trainingApiKey == null) {
-                    throw new Exception("Azure custom vision samples training api key not found.");
-                }
-            }
-            if (predictionApiKey == null) {
-                predictionApiKey = System.getenv("AZURE_CUSTOMVISION_PREDICTION_API_KEY");
-                if(predictionApiKey == null) {
-                    throw new Exception("Azure custom vision samples prediction api key not found.");
-                }
-            }
-
             // This demonstrates how to create an image classification project, upload images,
             // train it and make a prediction.
-            ImageClassification_Sample();
+            ImageClassification_Sample(trainer, predictor);
 
             // This demonstrates how to create an object detection project, upload images,
             // train it and make a prediction.
-            ObjectDetection_Sample();
-
+            ObjectDetection_Sample(trainer, predictor);
         } catch (Exception e) {
             System.out.println(e.getMessage());
             e.printStackTrace();
         }
     }
 
-    public static void ImageClassification_Sample()
-    {
-        // create a client
-        TrainingApi trainer = new TrainingApiImpl()
-            .withApiKey(trainingApiKey);
+    public static void ImageClassification_Sample(TrainingApi trainClient, PredictionEndpoint predictor) {
+        try {
+            Trainings trainer = trainClient.trainings();
 
-        ProjectModel project = trainer.createProject("Sample Java Project");
+            Project project = trainer.createProject()
+                                        .withName("Sample Java Project")
+                                        .execute();
 
-        // create hemlock tag
-        TagModel hemlockTag = trainer.createTag(project.id(), "Hemlock");
-        // create cherry tag
-        TagModel cherryTag = trainer.createTag(project.id(), "Japanese Cherry");
+            // create hemlock tag
+            Tag hemlockTag = trainer.createTag()
+                                    .withProjectId(project.id())
+                                    .withName("Hemlock")
+                                    .execute();
+            // create cherry tag
+            Tag cherryTag = trainer.createTag()
+                                    .withProjectId(project.id())
+                                    .withName("Japanese Cherry")
+                                    .execute();
 
-        System.out.println("Adding images...");
-        File[] tFiles = GetResourceFiles("Hemlock");
-        for (final File tFile : tFiles) {
-            trainer.createImagesFromData(project.id(), Files.readAllBytes(Paths.get(tFile.getPath())), asList(hemlockTag.id().toString()));
-        }
-    
-        tFiles = GetResourceFiles("Japanese Cherry");
-        for (final File tFile : tFiles) {
-            trainer.createImagesFromData(project.id(), Files.readAllBytes(Paths.get(tFile.getPath())), asList(hemlockTag.id().toString()));
-        }
+            System.out.println("Adding images...");
+            File[] tFiles = GetResourceImagesByFolder("Hemlock");
+            for (final File tFile : tFiles) {
+                ImageFileCreateEntry files = new ImageFileCreateEntry()
+                                                .withName(tFile.getName())
+                                                .withContents(Files.readAllBytes(Paths.get(tFile.getPath())));
 
-        System.out.println("Training...");
-        IterationModel iteration = trainer.trainProject(project.id());
-        while (iteration.status() == "Training")
-        {
-            System.out.println("Training Status: "+ iteration.status());
-            Thread.sleep(1000);
-            iteration = trainer.getIteration(project.id(), iteration.id());
-        }
+                ImageFileCreateBatch batch = new ImageFileCreateBatch()
+                                                .withImages(asList(files))
+                                                .withTagIds(asList(hemlockTag.id()));
 
-        PredictionEndpoint predictor = new PredictionEndpointImpl()
-                                        .withApiKey(predictionApiKey);
-
-        // use below for url
-        // ImageUrl url = new ImageUrl().withUrl("{url}");
-        // ImagePrediction results = predictor.predictImageUrl(project.id(), url);
-
-        // load test image, use the first as a prediction
-        File[] testFiles = GetResourceImagesByFolder("Test");
-        byte[] testImage =  Files.readAllBytes(Paths.get(testFiles[0].getPath()));
-    
-        // predict
-        ImagePrediction results = predictor.predictImage(project.id(), testImage);
-        for (Prediction prediction: results.predictions())
-        {
-            System.out.println(String.format("\t%s: %.2f%% at: %.2f%%, %.2f%%, %.2f%%, %.2f%%", prediction.tag(), prediction.probability() * 100.0f));
-        }
-    }
-
-    public static void ObjectDetection_Sample()
-    {
-        // create a client
-        TrainingApi trainer = new TrainingApiImpl()
-            .withApiKey(trainingApiKey);
-
-        // find the object detection domain to set the project type
-        Domain objectDetectionDomain = null;
-        List<Domain> domains = trainer.getDomains();
-        for (final Domain domain : domains) {
-            if (domain.type == DomainType.OBJECT_DETECTION) {
-                objectDetectionDomain = domain;
-                break;
+                trainer.createImagesFromFiles(project.id(), batch);
             }
-        }
 
-        // create an object detection project
-        ProjectModel project = trainer.createProject("Sample Java OD Project", "Sample OD Project", objectDetectionDomain.id, Classifier.MULTILABEL);
+            tFiles = GetResourceImagesByFolder("Japanese Cherry");
+            for (final File tFile : tFiles) {
+                ImageFileCreateEntry files = new ImageFileCreateEntry()
+                                                .withName(tFile.getName())
+                                                .withContents(Files.readAllBytes(Paths.get(tFile.getPath())));
 
-        // create fork tag
-        TagModel forkTag = trainer.createTag(project.id(), "fork");
-        // create scissor tag
-        TagModel scissorTag = trainer.createTag(project.id(), "scissor");
+                ImageFileCreateBatch batch = new ImageFileCreateBatch()
+                                                .withImages(asList(files))
+                                                .withTagIds(asList(hemlockTag.id()));
 
-        System.out.println("Adding images...");
-        File[] tFiles = GetResourceFiles("fork");
-        for (final File tFile : tFiles) {
-            trainer.createImagesFromData(project.id(), Files.readAllBytes(Paths.get(tFile.getPath())), asList(forkTag.id().toString()));
-        }
-    
-        tFiles = GetResourceFiles("scissor");
-        for (final File tFile : tFiles) {
-            trainer.createImagesFromData(project.id(), Files.readAllBytes(Paths.get(tFile.getPath())), asList(scissorTag.id().toString()));
-        }
+                trainer.createImagesFromFiles(project.id(), batch);
+            }
 
-        System.out.println("Training...");
-        IterationModel iteration = trainer.trainProject(project.id());
-        while (iteration.status() == "Training")
-        {
-            System.out.println("Training Status: "+ iteration.status());
-            Thread.sleep(1000);
-            iteration = trainer.getIteration(project.id(), iteration.id());
-        }
+            System.out.println("Training...");
+            Iteration iteration = trainer.trainProject(project.id());
 
-        PredictionEndpoint predictor = new PredictionEndpointImpl()
-                                        .withApiKey(predictionApiKey);
+            while (iteration.status() == "Training")
+            {
+                System.out.println("Training Status: "+ iteration.status());
+                Thread.sleep(1000);
+                iteration = trainer.getIteration(project.id(), iteration.id());
+            }
 
-        // use below for url
-        // ImageUrl url = new ImageUrl().withUrl("{url}");
-        // ImagePrediction results = predictor.predictImageUrl(project.id(), url);
+            // use below for url
+            // String url = "some url";
+            // ImagePrediction results = predictor.predictions().predictImage()
+            //                         .withProjectId(project.id())
+            //                         .withUrl(url)
+            //                         .execute();
 
-        // load test image, use the first as a prediction
-        File[] testFiles = GetResourceImagesByFolder("ObjectTest");
-        byte[] testImage =  Files.readAllBytes(Paths.get(testFiles[0].getPath()));
-    
-        // predict
-        ImagePrediction results = predictor.predictImage(project.id(), testImage);
-        for (Prediction prediction: results.predictions())
-        {
-            System.out.println(String.format("\t%s: %.2f%% at: %.2f%%, %.2f%%, %.2f%%, %.2f%%",
-                prediction.tag(),
-                prediction.probability() * 100.0f,
-                prediction.boundingBox().left(),
-                prediction.boundingBox().top(),
-                prediction.boundingBox().width(),
-                prediction.boundingBox().height()
-            ));
+            // load test image, use the first as a prediction
+            File[] testFiles = GetResourceImagesByFolder("Test");
+            byte[] testImage =  Files.readAllBytes(Paths.get(testFiles[0].getPath()));
+
+            // predict
+            ImagePrediction results = predictor.predictions().predictImage()
+                                            .withProjectId(project.id())
+                                            .withImageData(testImage)
+                                            .execute();
+
+            for (Prediction prediction: results.predictions())
+            {
+                System.out.println(String.format("\t%s: %.2f%% at: %.2f%%, %.2f%%, %.2f%%, %.2f%%", prediction.tagName(), prediction.probability() * 100.0f));
+            }
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    private static byte[] GetResourceImagesByFolder(String folderName)
+    public static void ObjectDetection_Sample(TrainingApi trainClient, PredictionEndpoint predictor)
+    {
+        try {
+            Trainings trainer = trainClient.trainings();
+
+            // find the object detection domain to set the project type
+            Domain objectDetectionDomain = null;
+            List<Domain> domains = trainer.getDomains();
+            for (final Domain domain : domains) {
+                if (domain.type() == DomainType.OBJECT_DETECTION) {
+                    objectDetectionDomain = domain;
+                    break;
+                }
+            }
+
+            // create an object detection project
+            Project project = trainer.createProject()
+                                    .withName("Sample Java OD Project")
+                                    .withDescription("Sample OD Project")
+                                    .withDomainId(objectDetectionDomain.id())
+                                    .withClassificationType(Classifier.MULTILABEL.toString())
+                                    .execute();
+
+            // create fork tag
+            Tag forkTag = trainer.createTag()
+                                    .withProjectId(project.id())
+                                    .withName("fork")
+                                    .execute();
+
+            // create scissor tag
+            Tag scissorTag = trainer.createTag()
+                                    .withProjectId(project.id())
+                                    .withName("scissor")
+                                    .execute();
+
+            System.out.println("Adding images...");
+            File[] tFiles = GetResourceImagesByFolder("fork");
+            for (final File tFile : tFiles) {
+                ImageFileCreateEntry files = new ImageFileCreateEntry()
+                            .withName(tFile.getName())
+                            .withContents(Files.readAllBytes(Paths.get(tFile.getPath())));
+
+                ImageFileCreateBatch batch = new ImageFileCreateBatch()
+                            .withImages(asList(files))
+                            .withTagIds(asList(forkTag.id()));
+
+                trainer.createImagesFromFiles(project.id(), batch);
+            }
+
+            tFiles = GetResourceImagesByFolder("scissor");
+            for (final File tFile : tFiles) {
+                ImageFileCreateEntry files = new ImageFileCreateEntry()
+                            .withName(tFile.getName())
+                            .withContents(Files.readAllBytes(Paths.get(tFile.getPath())));
+
+                ImageFileCreateBatch batch = new ImageFileCreateBatch()
+                            .withImages(asList(files))
+                            .withTagIds(asList(scissorTag.id()));
+
+                trainer.createImagesFromFiles(project.id(), batch);
+            }
+
+            System.out.println("Training...");
+            Iteration iteration = trainer.trainProject(project.id());
+
+            while (iteration.status() == "Training")
+            {
+                System.out.println("Training Status: "+ iteration.status());
+                Thread.sleep(1000);
+                iteration = trainer.getIteration(project.id(), iteration.id());
+            }
+
+            // use below for url
+            // String url = "some url";
+            // ImagePrediction results = predictor.predictions().predictImage()
+            //                         .withProjectId(project.id())
+            //                         .withUrl(url)
+            //                         .execute();
+
+            // load test image, use the first as a prediction
+            File[] testFiles = GetResourceImagesByFolder("ObjectTest");
+            byte[] testImage =  Files.readAllBytes(Paths.get(testFiles[0].getPath()));
+
+            // predict
+            ImagePrediction results = predictor.predictions().predictImage()
+                                            .withProjectId(project.id())
+                                            .withImageData(testImage)
+                                            .execute();
+
+            for (Prediction prediction: results.predictions())
+            {
+                System.out.println(String.format("\t%s: %.2f%% at: %.2f%%, %.2f%%, %.2f%%, %.2f%%",
+                    prediction.tagName(),
+                    prediction.probability() * 100.0f,
+                    prediction.boundingBox().left(),
+                    prediction.boundingBox().top(),
+                    prediction.boundingBox().width(),
+                    prediction.boundingBox().height()
+                ));
+            }
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private static File[] GetResourceImagesByFolder(String folderName)
     {
         URL url = Samples.class.getClassLoader().getResource(folderName);
         String path = url.getPath();
         return new File(path).listFiles();
+    }
+
+    /**
+     * Main entry point.
+     *
+     * @param args the parameters
+     */
+    public static void main(String[] args) {
+        try {
+            //=============================================================
+            // Authenticate
+
+            final String trainingApiKey = System.getenv("AZURE_CUSTOMVISION_TRAINING_API_KEY");;
+            final String predictionApiKey = System.getenv("AZURE_CUSTOMVISION_PREDICTION_API_KEY");;
+
+            TrainingApi trainClient = CustomVisionTrainingManager.authenticate(trainingApiKey);
+            PredictionEndpoint predictClient = CustomVisionPredictionManager.authenticate(predictionApiKey);
+
+            runSample(trainClient, predictClient);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            e.printStackTrace();
+        }
     }
 }
